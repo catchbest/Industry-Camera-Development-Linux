@@ -25,9 +25,9 @@ TARGET  := capture
 #compile and lib parameter
 LIBS    :=
 
-LDFLAGS :=  -L../KSJApi.bin/$(PLATFORM_BIN_DIR) -lksjapi -lksjlog -lksjbayer -lpthread -lusb-1.0 -ludev -ldl
-INCLUDE := -I. -I.. -I../KSJApi.inc 
-CFLAGS  := -gdwarf-2   -g3 -Wall  $(DEFINES) $(INCLUDE) -Wl,-rpath,../KSJApi.bin/$(PLATFORM_BIN_DIR)
+LDFLAGS :=  -L../../KSJApi.bin/$(PLATFORM_BIN_DIR) -lksjapi -lksjlog -lksjbayer -lpthread -lusb-1.0 -ludev -ldl
+INCLUDE := -I. -I.. -I../../KSJApi.inc 
+CFLAGS  := -gdwarf-2   -g3 -Wall  $(DEFINES) $(INCLUDE) -Wl,-rpath,../../KSJApi.bin/$(PLATFORM_BIN_DIR)
 CXXFLAGS:= $(CFLAGS) -DHAVE_CONFIG_H
   
   

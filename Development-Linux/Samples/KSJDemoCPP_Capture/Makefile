@@ -3,7 +3,7 @@
 ######################################
 #source file
 
-PLATFORM_BIN_DIR=x64
+PLATFORM=x64
 
 #CROSS_COMPILE=arm-linux-gnueabihf-
 #PLATFORM_BIN_DIR=arm32
@@ -20,14 +20,14 @@ SOURCE  := $(wildcard *.c) $(wildcard *.cpp)
 OBJS    := $(patsubst %.c,%.o,$(patsubst %.cpp,%.o,$(SOURCE)))
   
 #target you can change test to what you want
-TARGET  := capture
+TARGET  := capture_$(PLATFORM)
   
 #compile and lib parameter
 LIBS    :=
 
-LDFLAGS :=  -L../KSJApi.bin/$(PLATFORM_BIN_DIR) -lksjapi -lksjlog -lksjbayer -lpthread -lusb-1.0 -ludev -ldl
-INCLUDE := -I. -I.. -I../KSJApi.inc 
-CFLAGS  := -gdwarf-2   -g3 -Wall  $(DEFINES) $(INCLUDE) -Wl,-rpath,../KSJApi.bin/$(PLATFORM_BIN_DIR)
+LDFLAGS :=  -L../../KSJApi.bin/$(PLATFORM) -lksjapi -lksjlog -lksjbayer -lpthread -lusb-1.0 -ludev -ldl
+INCLUDE := -I. -I.. -I../../KSJApi.inc 
+CFLAGS  := -gdwarf-2   -g3 -Wall  $(DEFINES) $(INCLUDE) -Wl,-rpath,../../KSJApi.bin/$(PLATFORM)
 CXXFLAGS:= $(CFLAGS) -DHAVE_CONFIG_H
   
   
