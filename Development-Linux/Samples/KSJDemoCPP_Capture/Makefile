@@ -3,7 +3,7 @@
 ######################################
 #source file
 
-PLATFORM=x64
+#PLATFORM=x64
 
 #CROSS_COMPILE=arm-linux-gnueabihf-
 #PLATFORM_BIN_DIR=arm32
