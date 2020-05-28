@@ -97,7 +97,7 @@
      </rect>
     </property>
     <property name="currentIndex">
-     <number>0</number>
+     <number>1</number>
     </property>
     <widget class="QWidget" name="NormalTab">
      <attribute name="title">
@@ -788,6 +788,9 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>0.000000000000000</double>
+       </property>
        <property name="maximum">
         <double>5.000000000000000</double>
        </property>
@@ -946,8 +949,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -965,8 +971,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -984,8 +993,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -1003,8 +1015,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -1022,8 +1037,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -1041,8 +1059,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -1060,8 +1081,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -1079,8 +1103,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>
@@ -1098,8 +1125,11 @@
        <property name="decimals">
         <number>3</number>
        </property>
+       <property name="minimum">
+        <double>-999.000000000000000</double>
+       </property>
        <property name="maximum">
-        <double>999999999999.000000000000000</double>
+        <double>999.000000000000000</double>
        </property>
        <property name="singleStep">
         <double>0.001000000000000</double>

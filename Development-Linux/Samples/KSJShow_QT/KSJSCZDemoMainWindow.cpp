@@ -1892,7 +1892,7 @@ void CKSJSCZDemoMainWindow::on_TestingPushButton_clicked()
 			if (nRet == RET_SUCCESS)
 			{
 				// 采集图像以后，将内存数据转换成QImage数据,这样pImageData的数据就被转移到QImage里面，以后可以自己进行算法操作
-				TransferImageData(pImageBuffer, nWidth, nHeight, nBitCount);
+				TransferImageData(pImageBuffer, nWidth, nHeight, nBitCount, 200);
 			}
 			else
 			{
