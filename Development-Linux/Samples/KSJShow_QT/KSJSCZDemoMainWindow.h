@@ -9,6 +9,7 @@
 #include <QMutex>
 
 #ifdef OLD_KSJAPI
+#include <tchar.h>
 #ifdef  UNICODE                     // r_winnt
 typedef wchar_t TCHAR;
 #else   /* UNICODE */               // r_winnt
@@ -25,8 +26,17 @@ typedef char TCHAR;
 #include <windows.h>
 #endif
 
+#define MAX_CAMERA_COUNT    16
+
 
 namespace Ui { class KSJSCZDemoMainWindow; }
+
+struct ThreadData
+{
+	int nCameraIndex;
+	void* pThreadParam;
+};
+
 
 class CKSJSCZDemoMainWindow : public QDialog
 {
@@ -44,14 +54,15 @@ signals:                                     //自定义信号
 	void sigWBADone(float, float, float);
 	void sigAEStartMsg(bool);
 	void sigAEFinishMsg(int, float);
+	void sigNewImage();
 
 protected slots:
+
+	void OnNewImage();
 
 	void on_PreViewPushButton_clicked();
 	void on_RefreshPushButton_clicked();
 	void on_SnapImagePushButton_clicked();
-
-	void on_DevicesComboBox_currentIndexChanged(int);
 
 	void on_TrigetModeComboBox_currentIndexChanged(int);
 	void on_TrigetMethodComboBox_currentIndexChanged(int);
@@ -153,8 +164,8 @@ protected:
 	virtual void wheelEvent(QWheelEvent * event);
 
 protected:
-	bool StartCaptureThread();
-	bool KillCaptureThread();
+	bool StartCaptureThread(int nIndex);
+	bool KillCaptureThread(int nIndex);
 
 	void RefreshDevice();
 	void SelectDevice(int nIndex);
@@ -180,44 +191,45 @@ public:
 	void AeCallbackEx(KSJ_AE_STATUS AEStatus, float fExpsoureTimeMs);
 
 protected:
+	int  m_nCameraNumber;
 	int  m_nCamareIndex;
-	bool m_bStopCaptureThread;
-	bool m_bCapturingThreadIsWorking;
 
-	bool m_bSaveImage;
-	int  m_nSnapCount;
+	bool m_pbStopCaptureThread[MAX_CAMERA_COUNT];
+	bool m_pbCapturingThreadIsWorking[MAX_CAMERA_COUNT];
+
+	bool m_pbSaveImage[MAX_CAMERA_COUNT];
+	int  m_pnSnapCount[MAX_CAMERA_COUNT];
+
 	QString m_strImagePath;
 	QString m_strImagePreFix;
 
 protected:
 #ifdef _WIN32
-	HANDLE        m_hCapturingThread;
-	unsigned int  m_nCapturingThreadId;
+	HANDLE m_hCapturingThread[MAX_CAMERA_COUNT];
+	unsigned int m_nCapturingThreadId[MAX_CAMERA_COUNT];
 	static unsigned int __stdcall ThreadForCaptureData(LPVOID arg);
 #else
-	unsigned long m_nCapturingThreadId;
+	unsigned long m_nCapturingThreadId[MAX_CAMERA_COUNT];
 	static void* ThreadForCaptureData(void *arg);
 #endif
 
 protected:
-	void TransferImageData(unsigned char* pImageData, int w, int h, int bc, unsigned int nTimeOutMS);
+	void TransferImageData(int nIndex, unsigned char* pImageData, int w, int h, int bc, unsigned int nTimeOutMS);
 	void ProcessCaptureData();
 
 protected:
+
 	// 采集到的图像
-	QImage*  m_pImage;
-	QMutex   m_ImageLocker;
+	QImage*        m_pShowImage[MAX_CAMERA_COUNT];
+	QMutex*        m_pImageLocker[MAX_CAMERA_COUNT];
 
-	bool           m_bHasNewData;
-	int            m_nImgWidth;
-	int            m_nImgHeight;
-	int            m_nImgBitCount;
-	unsigned char* m_pTempImageData;
-	QMutex         m_DataLocker;
-
-	float          m_fCaptureUseMS;
-
-	int            m_nClcFpsTickCount;
+	bool           m_bHasNewData[MAX_CAMERA_COUNT];
+	int            m_nImgWidth[MAX_CAMERA_COUNT];
+	int            m_nImgHeight[MAX_CAMERA_COUNT];
+	int            m_nImgBitCount[MAX_CAMERA_COUNT];
+	unsigned char* m_pTempImageData[MAX_CAMERA_COUNT];
+	QMutex*        m_pDataLocker[MAX_CAMERA_COUNT];
+	ThreadData     m_ThreadData[MAX_CAMERA_COUNT];
 
 #ifdef _WIN32
 	LARGE_INTEGER   m_lifrqc, m_litmp1, m_litmp2;
@@ -242,6 +254,10 @@ protected:
 	int     m_nAETarget;
 	bool    m_bAEShowRegion;
 	int     m_nAEMaxCount;
+
+	float   m_fCaptureUseMS;
+
+	int     m_nClcFpsTickCount;
 
 };
 

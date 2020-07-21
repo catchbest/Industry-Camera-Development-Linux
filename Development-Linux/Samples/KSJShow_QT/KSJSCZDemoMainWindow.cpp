@@ -22,7 +22,11 @@
 #include <process.h>
 
 #ifdef _DEBUG
+#ifdef OLD_KSJAPI
 #pragma comment( lib, "KSJApid.lib" )
+#else
+#pragma comment( lib, "MDd_KSJApi_x86.lib" )
+#endif
 
 #pragma comment(lib, "Qt5Widgetsd.lib")
 #pragma comment(lib, "Qt5Guid.lib")
@@ -55,7 +59,10 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 #endif
 	}
 
-	CKSJSCZDemoMainWindow* pMainWindow = (CKSJSCZDemoMainWindow*)arg;
+	ThreadData* pThreadData = (ThreadData*)arg;
+
+	int nCamIndex = pThreadData->nCameraIndex;
+	CKSJSCZDemoMainWindow* pMainWindow = (CKSJSCZDemoMainWindow*)pThreadData->pThreadParam;
 
 	pMainWindow->update();
 
@@ -66,11 +73,9 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 	int nBufferSize = 0;
 	unsigned char* pImageBuffer = NULL;
 
-	int nIndex = 0;
-
 	//KSJ_EmptyFrameBuffer(pMainWindow->m_nCamareIndex);
 
-	if (pMainWindow->m_nCamareIndex < 0)
+	if (nCamIndex < 0)
 	{
 #ifdef _WIN32
 		return 0;
@@ -80,7 +85,17 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 #endif
 	}
 
-	nRet = KSJ_CaptureGetSizeEx(pMainWindow->m_nCamareIndex, &nWidth, &nHeight, &nBitCount);
+	int nIndex = 0;
+
+	int nValue = 0;
+
+	KSJ_QueryFunction(nCamIndex, KSJ_PROPERTY_MONO_DEVICE, &nValue);
+
+	bool bIsMonoCamera = (nValue != 0);   // 是否黑白相机
+
+	nRet = KSJ_CaptureGetSize(nCamIndex, &nWidth, &nHeight);
+
+	nBitCount = bIsMonoCamera ? 8 : 24;
 
 	if (nRet != RET_SUCCESS)
 	{
@@ -92,6 +107,8 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 #endif
 	}
 
+	//nBitCount = 8;
+
 	nBufferSize = nWidth*nHeight*nBitCount / 8;
 	pImageBuffer = new unsigned char[nBufferSize];
 	
@@ -99,9 +116,10 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 	pMainWindow->m_nFramesCount = 0;
 	pMainWindow->m_nLastFramesCount = 0;
 
-	while (!pMainWindow->m_bStopCaptureThread)
+	while (!pMainWindow->m_pbStopCaptureThread[nCamIndex])
 	{
-		nRet = KSJ_CaptureRgbData(pMainWindow->m_nCamareIndex, pImageBuffer);
+		if (bIsMonoCamera) nRet = KSJ_CaptureRawData(nCamIndex, pImageBuffer);
+		else nRet = KSJ_CaptureRgbData(nCamIndex, pImageBuffer);
 
 		if (nRet == RET_SUCCESS)
 		{
@@ -110,7 +128,7 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 			if (pMainWindow->m_bShowImage)
 			{
 				// 采集图像以后，将内存数据转换成QImage数据,这样pImageData的数据就被转移到QImage里面，以后可以自己进行算法操作
-				pMainWindow->TransferImageData(pImageBuffer, nWidth, nHeight, nBitCount, 0);
+				pMainWindow->TransferImageData(nCamIndex, pImageBuffer, nWidth, nHeight, nBitCount, 0);
 			}
 		}
 		else
@@ -134,29 +152,14 @@ void* CKSJSCZDemoMainWindow::ThreadForCaptureData(void *arg)
 CKSJSCZDemoMainWindow::CKSJSCZDemoMainWindow(QWidget *parent) :
 QDialog(parent)
 , ui(new Ui::KSJSCZDemoMainWindow)
-, m_pImage(NULL)
 , m_nCamareIndex(0)
-, m_bSaveImage(false)
-, m_nSnapCount(0)
-, m_bStopCaptureThread(false)
-, m_bCapturingThreadIsWorking(false)
-#ifdef _WIN32
-, m_hCapturingThread(NULL)
-, m_nCapturingThreadId(0)
-#else
-, m_nCapturingThreadId(0)
-#endif
 , m_bShowImage(true)
 , m_nFramesCount(0)
 , m_nLastFramesCount(0)
 , m_bIsDoAutoExposure(false)
-, m_nImgWidth(0)
-, m_nImgHeight(0)
-, m_nImgBitCount(0)
-, m_pTempImageData(NULL)
-, m_bHasNewData(false)
 , m_nClcFpsTickCount(-1)
 , m_fCaptureUseMS(0.0f)
+, m_nCameraNumber(0)
 {
 	ui->setupUi(this);
 	setMouseTracking(true);
@@ -164,6 +167,31 @@ QDialog(parent)
 #ifndef _DEBUG
 	ui->TestingTab->setHidden(true);
 #endif
+
+	for (int i = 0; i < MAX_CAMERA_COUNT; ++i)
+	{
+		m_pShowImage[i] = NULL;
+		m_nImgWidth[i] = 0;
+		m_nImgHeight[i] = 0;
+		m_nImgBitCount[i] = 0;
+		m_pTempImageData[i] = 0;
+		m_bHasNewData[i] = 0;
+		m_ThreadData[i].nCameraIndex = i;
+		m_ThreadData[i].pThreadParam = this;
+
+		m_pbSaveImage[i] = false;
+		m_pnSnapCount[i] = 0;
+		m_pbStopCaptureThread[i] = false;
+		m_pbCapturingThreadIsWorking[i] = false;
+#ifdef _WIN32
+		m_hCapturingThread[i] = NULL;
+		m_nCapturingThreadId[i] = 0;
+#else
+		m_nCapturingThreadId[i] = 0;
+#endif
+		m_pImageLocker[i] = new QMutex();
+		m_pDataLocker[i] = new QMutex();
+	}
 
 	InitCnotrol();
 
@@ -174,10 +202,12 @@ QDialog(parent)
 	connect(this, SIGNAL(sigAEStartMsg(bool)), this, SLOT(OnAEStartMsg(bool)));
 	connect(this, SIGNAL(sigAEFinishMsg(int, float)), this, SLOT(OnAEFinishMsg(int, float)));
 
+	connect(this, SIGNAL(sigNewImage()), this, SLOT(OnNewImage()));
+
 	// 初始化
 	RefreshDevice();
 
-	KSJ_LogSet(true, NULL);
+	KSJ_LogSet(false, NULL);
 
 	QDateTime dt = QDateTime::currentDateTime();
 	m_strImagePreFix = QCoreApplication::applicationDirPath() + "/" + dt.toString("yyyy-MM-ddhhmmss-");
@@ -185,24 +215,40 @@ QDialog(parent)
 	m_pClcFpsTimer = new QTimer(this);
 	m_pClcFpsTimer->setInterval(2000);
 	connect(m_pClcFpsTimer, SIGNAL(timeout()), this, SLOT(OnClcFpsTimer()));
+
+	m_pClcFpsTimer->start();
 }
 
 CKSJSCZDemoMainWindow::~CKSJSCZDemoMainWindow()
 {
-	KillCaptureThread();
+	m_pClcFpsTimer->stop();
+
+	for (int i = 0; i < m_nCameraNumber; ++i)
+	{
+		KillCaptureThread(i);
+	}
 
 	KSJ_UnInit();
 
-	if (m_pImage != NULL)
+	for (int i = 0; i < MAX_CAMERA_COUNT; ++i)
 	{
-		delete m_pImage;
-		m_pImage = NULL;
-	}
+		if (m_pShowImage[i] != NULL)
+		{
+			delete m_pShowImage[i];
+			m_pShowImage[i] = NULL;
+		}
 
-	if (m_pTempImageData != NULL)
-	{
-		delete[]m_pTempImageData;
-		m_pTempImageData = NULL;
+		if (m_pTempImageData[i] != NULL)
+		{
+			delete[]m_pTempImageData[i];
+			m_pTempImageData[i] = NULL;
+		}
+
+		delete m_pImageLocker[i];
+		m_pImageLocker[i] = NULL;
+
+		delete m_pDataLocker[i];
+		m_pDataLocker[i] = NULL;
 	}
 
 	delete ui;
@@ -212,78 +258,264 @@ void CKSJSCZDemoMainWindow::paintEvent(QPaintEvent *)
 {
 	ProcessCaptureData();
 
-	// 图像不为空，则开始显示
-	if (m_pImage != NULL)
+	QPainter painter(this);
+
+	int ww = size().width() - 320;
+	int wh = size().height();
+
+	if (m_nCameraNumber <= 0)
 	{
-		QPainter painter(this);
+		return;
+	}
+	else if (m_nCameraNumber == 1)
+	{
+		int x = 320;
+		int y = 0;
+		int w = ww;
+		int h = wh;
 
-		int w = size().width() - 320;
-		int h = size().height();
+		painter.drawRect(x, y, w, h);
 
-		m_ImageLocker.lock();
+		// 图像不为空，则开始显示
+		if (m_pShowImage[0] != NULL)
+		{
+			m_pImageLocker[0]->lock();
 
-		int iw = m_pImage->width();
-		int ih = m_pImage->height();
+			int iw = m_pShowImage[0]->width();
+			int ih = m_pShowImage[0]->height();
 
-		float fw = ((float)(w)) / iw;
-		float fh = ((float)(h)) / ih;
-		float f = fw < fh ? fw : fh;
+			float fw = ((float)(w)) / iw;
+			float fh = ((float)(h)) / ih;
+			float f = fw < fh ? fw : fh;
 
-		int dw = (int)(f*iw);
-		int dh = (int)(f*ih);
+			int dw = (int)(f*iw);
+			int dh = (int)(f*ih);
 
-		painter.drawImage(QRect(320 + (w - dw) / 2, (h - dh) / 2, dw, dh), *m_pImage, QRect(0, 0, iw, ih));
+			painter.drawImage(QRect(x + (w - dw) / 2, (h - dh) / 2, dw, dh), *(m_pShowImage[0]), QRect(0, 0, iw, ih));
 
-		m_ImageLocker.unlock();
+			m_pImageLocker[0]->unlock();
+		}
+	}
+	else if (m_nCameraNumber == 2)
+	{
+		int x = 320;
+		int y = 0;
+		int w = ww / 2;
+		int h = wh;
+
+		for (int i = 0; i < m_nCameraNumber; ++i)
+		{
+			x = 320 + i * ww / 2;
+
+			painter.drawRect(x, y, w, h);
+
+			if (m_pShowImage[i] != NULL)
+			{
+				m_pImageLocker[i]->lock();
+
+				int iw = m_pShowImage[i]->width();
+				int ih = m_pShowImage[i]->height();
+
+				float fw = ((float)(w)) / iw;
+				float fh = ((float)(h)) / ih;
+				float f = fw < fh ? fw : fh;
+
+				int dw = (int)(f*iw);
+				int dh = (int)(f*ih);
+
+				painter.drawImage(QRect(x + (w - dw) / 2, (h - dh) / 2, dw, dh), *(m_pShowImage[i]), QRect(0, 0, iw, ih));
+
+				m_pImageLocker[i]->unlock();
+			}
+		}
+	}
+	else if (m_nCameraNumber <= 4)
+	{
+		int x = 320;
+		int y = 0;
+		int w = ww / 2;
+		int h = wh / 2;
+
+		for (int i = 0; i < m_nCameraNumber; ++i)
+		{
+			x = 320 + (i%2) * ww / 2;
+			y = (i/2) * wh / 2;
+
+			painter.drawRect(x, y, w, h);
+
+			if (m_pShowImage[i] != NULL)
+			{
+				m_pImageLocker[i]->lock();
+
+				int iw = m_pShowImage[i]->width();
+				int ih = m_pShowImage[i]->height();
+
+				float fw = ((float)(w)) / iw;
+				float fh = ((float)(h)) / ih;
+				float f = fw < fh ? fw : fh;
+
+				int dw = (int)(f*iw);
+				int dh = (int)(f*ih);
+
+				painter.drawImage(QRect(x + (w - dw) / 2, (h - dh) / 2, dw, dh), *(m_pShowImage[i]), QRect(0, 0, iw, ih));
+
+				m_pImageLocker[i]->unlock();
+			}
+		}
+	}
+	else if (m_nCameraNumber <= 9)
+	{
+		int x = 320;
+		int y = 0;
+		int w = ww / 3;
+		int h = wh / 3;
+
+		for (int i = 0; i < m_nCameraNumber; ++i)
+		{
+			x = 320 + (i % 3) * ww / 3;
+			y = (i / 3) * wh / 3;
+
+			painter.drawRect(x, y, w, h);
+
+			if (m_pShowImage[i] != NULL)
+			{
+				m_pImageLocker[i]->lock();
+
+				int iw = m_pShowImage[i]->width();
+				int ih = m_pShowImage[i]->height();
+
+				float fw = ((float)(w)) / iw;
+				float fh = ((float)(h)) / ih;
+				float f = fw < fh ? fw : fh;
+
+				int dw = (int)(f*iw);
+				int dh = (int)(f*ih);
+
+				painter.drawImage(QRect(x + (w - dw) / 2, (h - dh) / 2, dw, dh), *(m_pShowImage[i]), QRect(0, 0, iw, ih));
+
+				m_pImageLocker[i]->unlock();
+			}
+		}
+	}
+	else if (m_nCameraNumber <= 16)
+	{
+		int x = 320;
+		int y = 0;
+		int w = ww / 4;
+		int h = wh / 4;
+
+		for (int i = 0; i < m_nCameraNumber; ++i)
+		{
+			x = 320 + (i % 4) * ww / 4;
+			y = (i / 4) * wh / 4;
+
+			painter.drawRect(x, y, w, h);
+
+			if (m_pShowImage[i] != NULL)
+			{
+				m_pImageLocker[i]->lock();
+
+				int iw = m_pShowImage[i]->width();
+				int ih = m_pShowImage[i]->height();
+
+				float fw = ((float)(w)) / iw;
+				float fh = ((float)(h)) / ih;
+				float f = fw < fh ? fw : fh;
+
+				int dw = (int)(f*iw);
+				int dh = (int)(f*ih);
+
+				painter.drawImage(QRect(x + (w - dw) / 2, (h - dh) / 2, dw, dh), *(m_pShowImage[i]), QRect(0, 0, iw, ih));
+
+				m_pImageLocker[i]->unlock();
+			}
+		}
+	}
+	else if (m_nCameraNumber <= 25)
+	{
+		int x = 320;
+		int y = 0;
+		int w = ww / 5;
+		int h = wh / 5;
+
+		for (int i = 0; i < m_nCameraNumber; ++i)
+		{
+			x = 320 + (i % 5) * ww / 5;
+			y = (i / 5) * wh / 5;
+
+			painter.drawRect(x, y, w, h);
+
+			if (m_pShowImage[i] != NULL)
+			{
+				m_pImageLocker[i]->lock();
+
+				int iw = m_pShowImage[i]->width();
+				int ih = m_pShowImage[i]->height();
+
+				float fw = ((float)(w)) / iw;
+				float fh = ((float)(h)) / ih;
+				float f = fw < fh ? fw : fh;
+
+				int dw = (int)(f*iw);
+				int dh = (int)(f*ih);
+
+				painter.drawImage(QRect(x + (w - dw) / 2, (h - dh) / 2, dw, dh), *(m_pShowImage[i]), QRect(0, 0, iw, ih));
+
+				m_pImageLocker[i]->unlock();
+			}
+		}
 	}
 }
 
-bool CKSJSCZDemoMainWindow::StartCaptureThread()
+bool CKSJSCZDemoMainWindow::StartCaptureThread(int nIndex)
 {
-	if (m_bCapturingThreadIsWorking) return true;
+	if (nIndex < 0 || nIndex >= MAX_CAMERA_COUNT) return false;
 
-	m_bStopCaptureThread = false;
-	m_bCapturingThreadIsWorking = true;
+	if (m_pbCapturingThreadIsWorking[nIndex]) return true;
+
+	m_pbStopCaptureThread[nIndex] = false;
+	m_pbCapturingThreadIsWorking[nIndex] = true;
 
 #ifdef _WIN32
-	m_hCapturingThread = (HANDLE)_beginthreadex(NULL, 0, ThreadForCaptureData, this, 0, &m_nCapturingThreadId);
+	m_hCapturingThread[nIndex] = (HANDLE)_beginthreadex(NULL, 0, ThreadForCaptureData, (void *)&m_ThreadData[nIndex], 0, &m_nCapturingThreadId[nIndex]);
 
-	return (m_hCapturingThread != NULL);
+	return (m_hCapturingThread[nIndex] != NULL);
 #else
 	pthread_attr_t  attr;
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	pthread_create(&m_nCapturingThreadId, &attr, ThreadForCaptureData, (void *)this);
+	pthread_create(&m_nCapturingThreadId[nIndex], &attr, ThreadForCaptureData, (void *)&m_ThreadData[nIndex]);
 	pthread_attr_destroy(&attr);
 #endif
 
 	return true;
 }
 
-bool CKSJSCZDemoMainWindow::KillCaptureThread()
+bool CKSJSCZDemoMainWindow::KillCaptureThread(int nIndex)
 {
+	if (nIndex < 0 || nIndex >= MAX_CAMERA_COUNT) return false;
 #ifdef _WIN32
-	if (m_hCapturingThread == NULL) return true;
-	if (!m_bCapturingThreadIsWorking) return true;
+	if (m_hCapturingThread[nIndex] == NULL) return true;
+	if (!m_pbCapturingThreadIsWorking[nIndex]) return true;
 
-	m_bStopCaptureThread = true;
+	m_pbStopCaptureThread[nIndex] = true;
 
 #ifdef OLD_KSJAPI
-	KSJ_SendPktEnd(m_nCamareIndex);
-	//KSJ_EmptyFrameBuffer(m_nCamareIndex);
+	KSJ_SendPktEnd(nIndex);
+	//KSJ_EmptyFrameBuffer(nIndex);
 #endif
 
-	if (WaitForSingleObject(m_hCapturingThread, 10000) != WAIT_OBJECT_0)
+	if (WaitForSingleObject(m_hCapturingThread[nIndex], 10000) != WAIT_OBJECT_0)
 	{
-		TerminateThread(m_hCapturingThread, 0);
+		TerminateThread(m_hCapturingThread[nIndex], 0);
 	}
 
-	m_hCapturingThread = NULL;
+	m_hCapturingThread[nIndex] = NULL;
 
-	m_bCapturingThreadIsWorking = false;
+	m_pbCapturingThreadIsWorking[nIndex] = false;
 #else
-	m_bStopCaptureThread = true;
-	m_bCapturingThreadIsWorking = false;
+    m_pbStopCaptureThread[nIndex] = true;
+    m_pbCapturingThreadIsWorking[nIndex] = false;
 #endif
 	return true;
 }
@@ -292,29 +524,34 @@ void CKSJSCZDemoMainWindow::on_PreViewPushButton_clicked()
 {
 	if (m_nCamareIndex >= 0)
 	{
-		if (m_bCapturingThreadIsWorking) this->StopPreview();
-		else                             this->StartPreview();
+		if (m_pbCapturingThreadIsWorking[m_nCamareIndex]) this->StopPreview();
+		else this->StartPreview();
 	}
 }
 
 void CKSJSCZDemoMainWindow::on_RefreshPushButton_clicked()
 {
-	bool bIsCapturing = this->StopPreview();
+	for (int i = 0; i < m_nCameraNumber; ++i)
+	{
+		KillCaptureThread(i);
+	}
+
+	ui->PreViewPushButton->setText("Start Preview");
 
 	RefreshDevice();
-
-	if (bIsCapturing) this->StartPreview();
 }
 
 void CKSJSCZDemoMainWindow::on_SnapImagePushButton_clicked()
 {
+	if (m_nCamareIndex < 0) return;
+
 	m_fCaptureUseMS = -1.f;
 
-	if (m_bCapturingThreadIsWorking)
+	if (m_pbCapturingThreadIsWorking[m_nCamareIndex])
 	{
-		m_bSaveImage = true;
+		m_pbSaveImage[m_nCamareIndex] = true;
 	}
-	else if (!m_nCamareIndex>=0)
+	else
 	{
 		int nRet;
 		int nWidth;
@@ -363,9 +600,11 @@ void CKSJSCZDemoMainWindow::on_SnapImagePushButton_clicked()
 
 		if (nRet == RET_SUCCESS)
 		{
-			m_bSaveImage = true;
+			//int n = KSJ_HelperSaveToBmp(pImageBuffer, nWidth, nHeight, nBitCount, _T("E:\\test.bmp"));
 
-			TransferImageData(pImageBuffer, nWidth, nHeight, nBitCount, 0);
+			m_pbSaveImage[m_nCamareIndex] = true;
+
+			TransferImageData(m_nCamareIndex, pImageBuffer, nWidth, nHeight, nBitCount, 0);
 
 			//ui->SnapCountLabel->setText(QString("Snap finidhed, use %1 MS").arg(QString::number(fRunTimeS, 'f', 2)));
 		}
@@ -373,10 +612,6 @@ void CKSJSCZDemoMainWindow::on_SnapImagePushButton_clicked()
 		{
 			ui->SnapCountLabel->setText(QString("Capture failed: error=%1").arg(nRet));
 		}
-	}
-	else
-	{
-		ui->SnapCountLabel->setText("No any camera");
 	}
 }
 
@@ -387,7 +622,7 @@ void CKSJSCZDemoMainWindow::RefreshDevice()
 {
 	m_nCamareIndex = -1;
 
-	ui->DevicesComboBox->clear();
+	m_nCameraNumber = 0;
 
 	KSJ_UnInit();
 
@@ -397,59 +632,34 @@ void CKSJSCZDemoMainWindow::RefreshDevice()
 	usleep(1000);
 #endif
 
+	KSJ_LogSet(true, NULL);
+
 	int nRet = KSJ_Init();
 
 	if (nRet != RET_SUCCESS) return;
 
-#ifdef OLD_KSJAPI
-	KSJ_DEVICETYPE pusDeviceType;
-#else
-	unsigned short pusDeviceType;
-#endif
-	int            pnSerials;
-	unsigned short pusFirmwareVersion;
-	unsigned short pusFpgaVersion;
+	m_nCameraNumber = KSJ_DeviceGetCount();
 
-	int nCamCount = KSJ_DeviceGetCount();
+	printf(" %s %s %d   count  %d    \n", __FILE__, __FUNCTION__, __LINE__, m_nCameraNumber);
 
-	printf(" %s %s %d   count  %d    \n", __FILE__, __FUNCTION__, __LINE__, nCamCount);
-
-	if (nCamCount <= 0)
+	if (m_nCameraNumber <= 0)
 	{
 		return;
 	}
 
-	QString strCamare;
-
-	for (int i = 0; i < nCamCount; ++i)
+	if (m_nCameraNumber > MAX_CAMERA_COUNT)
 	{
-		nRet = KSJ_DeviceGetInformationEx(i, &pusDeviceType, &pnSerials, &pusFirmwareVersion, &pusFpgaVersion);
-
-		if (nRet != RET_SUCCESS)
-		{
-			strCamare = QString("Camare%1: Unknow").arg(i);
-		}
-		else
-		{
-			strCamare = QString("Camare%1: SN(%2)-Type(%3)-FW(%4.%5)-PL(%6.%7)").arg(i).arg(pnSerials).arg(pusDeviceType).arg(KSJ_MSB(pusFirmwareVersion)).arg(KSJ_LSB(pusFirmwareVersion)).arg(KSJ_MSB(pusFpgaVersion)).arg(KSJ_LSB(pusFpgaVersion));
-		}
-
-		ui->DevicesComboBox->addItem(strCamare);
+		m_nCameraNumber = MAX_CAMERA_COUNT;
 	}
 
-	SelectDevice(-1);
+	SelectDevice(0);
 }
 
 void CKSJSCZDemoMainWindow::SelectDevice(int nIndex)
 {
-	bool bIsCapturing = this->StopPreview();
-
-	m_nCamareIndex = -1;
-
-	if (ui->DevicesComboBox->count() <= 0) return;
-
-	if (nIndex <= 0) m_nCamareIndex = 0;
-	else             m_nCamareIndex = nIndex;
+	if (nIndex < 0) return;
+	else if (nIndex >= m_nCameraNumber) return;
+	else m_nCamareIndex = nIndex;
 
 	//KSJ_CaptureSetFieldOfView(m_nCamareIndex, 0, 0, 1792, 1024, KSJ_SKIPNONE, KSJ_SKIPNONE);
 
@@ -476,26 +686,10 @@ void CKSJSCZDemoMainWindow::SelectDevice(int nIndex)
 	//KSJ_LutSetEnable(m_nCamareIndex, true);
 	//KSJ_SensitivitySetMode(m_nCamareIndex, KSJ_LOW);
 
-	ui->DevicesComboBox->setCurrentIndex(m_nCamareIndex);
-
 	//KSJ_GpioFilterSet(m_nCamareIndex, 100000);  // us为单位 5MS
 	//KSJ_WaterMarkSetEnable(m_nCamareIndex, true);
 
 	UpdateDeviceInfo();
-
-	if (bIsCapturing) this->StartPreview();
-}
-
-void CKSJSCZDemoMainWindow::on_DevicesComboBox_currentIndexChanged(int nIndex)
-{
-	if (ui->DevicesComboBox->count() <= 0) return;
-
-	bool bIsCapturing = this->StopPreview();
-
-	SelectDevice(nIndex);
-	UpdateDeviceInfo();
-
-	if (bIsCapturing) this->StartPreview();
 }
 
 void CKSJSCZDemoMainWindow::on_TrigetModeComboBox_currentIndexChanged(int nIndex)
@@ -792,12 +986,12 @@ void CKSJSCZDemoMainWindow::on_ProgramLutPushButton_clicked()
 
 bool CKSJSCZDemoMainWindow::StopPreview()
 {
-	if (m_bCapturingThreadIsWorking)
-	{
-		KillCaptureThread();
-		ui->PreViewPushButton->setText(m_bCapturingThreadIsWorking ? "Stop Preview" : "Start Preview");
+	if (m_nCamareIndex < 0) return false;
 
-		m_pClcFpsTimer->stop();
+	if (m_pbCapturingThreadIsWorking[m_nCamareIndex])
+	{
+		KillCaptureThread(m_nCamareIndex);
+		ui->PreViewPushButton->setText(m_pbCapturingThreadIsWorking[m_nCamareIndex] ? "Stop Preview" : "Start Preview");
 
 		return true;
 	}
@@ -807,15 +1001,15 @@ bool CKSJSCZDemoMainWindow::StopPreview()
 
 bool CKSJSCZDemoMainWindow::StartPreview()
 {
+	if (m_nCamareIndex < 0) return false;
+
 	m_nFramesCount = 0;
 	m_nLastFramesCount = 0;
 
 	if (m_nCamareIndex >= 0)
 	{
-		StartCaptureThread();
-		ui->PreViewPushButton->setText(m_bCapturingThreadIsWorking ? "Stop Preview" : "Start Preview");
-
-		m_pClcFpsTimer->start();
+		StartCaptureThread(m_nCamareIndex);
+		ui->PreViewPushButton->setText(m_pbCapturingThreadIsWorking[m_nCamareIndex] ? "Stop Preview" : "Start Preview");
 
 		return true;
 	}
@@ -930,6 +1124,35 @@ void CKSJSCZDemoMainWindow::UpdateDeviceInfo()
 	if (m_nCamareIndex == -1) return;
 
 	int nRet;
+
+	ui->PreViewPushButton->setText(m_pbCapturingThreadIsWorking[m_nCamareIndex] ? "Stop Preview" : "Start Preview");
+
+#ifdef OLD_KSJAPI
+	KSJ_DEVICETYPE pusDeviceType;
+#else
+	unsigned short pusDeviceType;
+#endif
+	int            pnSerials;
+	unsigned short pusFirmwareVersion;
+	unsigned short pusFpgaVersion;
+
+	QString strInfo;
+	
+	strInfo = QString("Camera %1 of %2").arg(m_nCamareIndex + 1).arg(m_nCameraNumber);
+	ui->CamerasInfoLabel->setText(strInfo);
+
+	nRet = KSJ_DeviceGetInformationEx(m_nCamareIndex, &pusDeviceType, &pnSerials, &pusFirmwareVersion, &pusFpgaVersion);
+
+	if (nRet != RET_SUCCESS)
+	{
+		strInfo = QString("Unknow").arg(m_nCamareIndex);
+	}
+	else
+	{
+		strInfo = QString("Type(%1)-SN(%2)-FW(%3.%4)-PL(%5.%6)").arg(pusDeviceType).arg(pnSerials).arg(KSJ_MSB(pusFirmwareVersion)).arg(KSJ_LSB(pusFirmwareVersion)).arg(KSJ_MSB(pusFpgaVersion)).arg(KSJ_LSB(pusFpgaVersion));
+	}
+
+	ui->DeviceNameLabel->setText(strInfo);
 
 	int nTriggerModeIndex = 0;
 	nRet = KSJ_TriggerModeGet(m_nCamareIndex, (KSJ_TRIGGERMODE*)&nTriggerModeIndex);
@@ -1603,143 +1826,153 @@ void CKSJSCZDemoMainWindow::on_ClearSettingsPushButton_clicked()
 
 static QVector<QRgb> grayTable;
 
-void CKSJSCZDemoMainWindow::TransferImageData(unsigned char* pImageData, int w, int h, int bc, unsigned int nTimeOutMS)
+void CKSJSCZDemoMainWindow::TransferImageData(int nIndex, unsigned char* pImageData, int w, int h, int bc, unsigned int nTimeOutMS)
 {
+	if (nIndex >= MAX_CAMERA_COUNT) return;
+
 	if (bc != 8 && bc != 24 && bc != 32) return;
 
-	if (m_DataLocker.tryLock(nTimeOutMS))
+	if (m_pDataLocker[nIndex]->tryLock(nTimeOutMS))
 	{
-		if (m_nImgWidth != w || m_nImgHeight != h || m_nImgBitCount != bc)
+		if (m_nImgWidth[nIndex] != w || m_nImgHeight[nIndex] != h || m_nImgBitCount[nIndex] != bc)
 		{
-			m_nImgWidth = w;
-			m_nImgHeight = h;
-			m_nImgBitCount = bc;
+			m_nImgWidth[nIndex] = w;
+			m_nImgHeight[nIndex] = h;
+			m_nImgBitCount[nIndex] = bc;
 
-			if (m_pTempImageData != NULL)
+			if (m_pTempImageData[nIndex] != NULL)
 			{
-				delete[]m_pTempImageData;
-				m_pTempImageData = NULL;
+				delete[]m_pTempImageData[nIndex];
+				m_pTempImageData[nIndex] = NULL;
 			}
 
-			m_pTempImageData = new unsigned char[m_nImgWidth*m_nImgHeight*m_nImgBitCount / 8];
+			m_pTempImageData[nIndex] = new unsigned char[m_nImgWidth[nIndex] * m_nImgHeight[nIndex] * m_nImgBitCount[nIndex] / 8];
 		}
 
-		memcpy(m_pTempImageData, pImageData, m_nImgWidth*m_nImgHeight*m_nImgBitCount / 8);
+		memcpy(m_pTempImageData[nIndex], pImageData, m_nImgWidth[nIndex] * m_nImgHeight[nIndex] * m_nImgBitCount[nIndex] / 8);
 
-		m_bHasNewData = true;
+		m_bHasNewData[nIndex] = true;
 
-		m_DataLocker.unlock();
+		m_pDataLocker[nIndex]->unlock();
 
-		update();
+		emit sigNewImage();
 	}
+}
+
+void CKSJSCZDemoMainWindow::OnNewImage()
+{
+	update();
 }
 
 void CKSJSCZDemoMainWindow::ProcessCaptureData()
 {
-	if (!m_bHasNewData) return;
-	if (m_pTempImageData == NULL) return;
-
-	m_DataLocker.lock();
-	m_ImageLocker.lock();
-
-	// 如果图像大小有改变，把老的m_pImage删除掉
-	if (m_pImage != NULL && (m_pImage->width() != m_nImgWidth || m_pImage->height() != m_nImgHeight))
+	for (int i = 0; i < m_nCameraNumber; ++i)
 	{
-		delete m_pImage;
-		m_pImage = NULL;
-	}
+		if (!m_bHasNewData[i]) continue;
+		if (m_pTempImageData[i] == NULL) continue;
 
-	if (m_nImgBitCount == 8)
-	{
-		if (m_pImage != NULL && m_pImage->format() != QImage::Format_Indexed8)
+		m_pDataLocker[i]->lock();
+		m_pImageLocker[i]->lock();
+
+		// 如果图像大小有改变，把老的m_pImage删除掉
+		if (m_pShowImage[i] != NULL && (m_pShowImage[i]->width() != m_nImgWidth[i] || m_pShowImage[i]->height() != m_nImgHeight[i]))
 		{
-			delete m_pImage;
-			m_pImage = NULL;
+			delete m_pShowImage[i];
+			m_pShowImage[i] = NULL;
 		}
 
-		if (m_pImage == NULL)
+		if (m_nImgBitCount[i] == 8)
 		{
-
-			m_pImage = new QImage(m_nImgWidth, m_nImgHeight, QImage::Format_Indexed8);
-
-			if (grayTable.size() <= 0)
+			if (m_pShowImage[i] != NULL && m_pShowImage[i]->format() != QImage::Format_Indexed8)
 			{
-				for (int i = 0; i < 256; i++) grayTable.push_back(qRgb(i, i, i));
+				delete m_pShowImage[i];
+				m_pShowImage[i] = NULL;
 			}
 
-			m_pImage->setColorTable(grayTable);
-		}
-
-		memcpy(m_pImage->bits(), m_pTempImageData, m_nImgWidth*m_nImgHeight*m_nImgBitCount / 8);
-	}
-	else if (m_nImgBitCount == 24)
-	{
-		if (m_pImage != NULL && m_pImage->format() != QImage::Format_RGB888)
-		{
-			delete m_pImage;
-			m_pImage = NULL;
-		}
-
-		if (m_pImage == NULL)
-		{
-			m_pImage = new QImage(m_nImgWidth, m_nImgHeight, QImage::Format_RGB888);
-		}
-
-		unsigned char* pData = m_pImage->bits();
-
-		//memcpy(pData, m_pTempImageData, m_nImgWidth*m_nImgHeight * 3);
-
-		for (int j = 0; j < m_nImgHeight; ++j)
-		{
-			for (int i = 0; i < m_nImgWidth; ++i)
+			if (m_pShowImage[i] == NULL)
 			{
-				pData[(m_nImgHeight - j - 1) * 3 * m_nImgWidth + 3 * i + 0] = m_pTempImageData[j * 3 * m_nImgWidth + 3 * i + 2];
-				pData[(m_nImgHeight - j - 1) * 3 * m_nImgWidth + 3 * i + 1] = m_pTempImageData[j * 3 * m_nImgWidth + 3 * i + 1];
-				pData[(m_nImgHeight - j - 1) * 3 * m_nImgWidth + 3 * i + 2] = m_pTempImageData[j * 3 * m_nImgWidth + 3 * i + 0];
-			}
-		}
-	}
-	else if (m_nImgBitCount == 32)
-	{
-		if (m_pImage != NULL && m_pImage->format() != QImage::Format_RGBA8888)
-		{
-			delete m_pImage;
-			m_pImage = NULL;
-		}
 
-		if (m_pImage == NULL)
-		{
-			m_pImage = new QImage(m_nImgWidth, m_nImgHeight, QImage::Format_RGBA8888);
-		}
+				m_pShowImage[i] = new QImage(m_nImgWidth[i], m_nImgHeight[i], QImage::Format_Indexed8);
 
-		unsigned char* pData = m_pImage->bits();
+				if (grayTable.size() <= 0)
+				{
+					for (int k = 0; k < 256; k++) grayTable.push_back(qRgb(k, k, k));
+				}
 
-		memcpy(pData, m_pTempImageData, m_nImgWidth*m_nImgHeight * 4);
-	}
-
-	m_bHasNewData = false;
-
-	m_DataLocker.unlock();
-	m_ImageLocker.unlock();
-
-	if (m_bSaveImage)
-	{
-		m_strImagePath = m_strImagePreFix + QString("%1.bmp").arg(m_nSnapCount, 3, 10, QChar('0'));
-
-		++m_nSnapCount;
-
-		if (m_pImage->save(m_strImagePath))
-		{
-			if (m_fCaptureUseMS > 0.0f)
-			{
-				ui->SnapCountLabel->setText(QString("Snap finished, capture data use %1 MS").arg(QString::number(m_fCaptureUseMS, 'f', 2)));
-			}
-			else
-			{
-				ui->SnapCountLabel->setText("Snap count : " + QString::number(m_nSnapCount));
+				m_pShowImage[i]->setColorTable(grayTable);
 			}
 
-			m_bSaveImage = false;
+			memcpy(m_pShowImage[i]->bits(), m_pTempImageData[i], m_nImgWidth[i] * m_nImgHeight[i] * m_nImgBitCount[i] / 8);
+		}
+		else if (m_nImgBitCount[i] == 24)
+		{
+			if (m_pShowImage[i] != NULL && m_pShowImage[i]->format() != QImage::Format_RGB888)
+			{
+				delete m_pShowImage[i];
+				m_pShowImage[i] = NULL;
+			}
+
+			if (m_pShowImage[i] == NULL)
+			{
+				m_pShowImage[i] = new QImage(m_nImgWidth[i], m_nImgHeight[i], QImage::Format_RGB888);
+			}
+
+			unsigned char* pData = m_pShowImage[i]->bits();
+
+			//memcpy(pData, m_pTempImageData[i], m_nImgWidth*m_nImgHeight * 3);
+
+			for (int n = 0; n < m_nImgHeight[i]; ++n)
+			{
+				for (int m = 0; m < m_nImgWidth[i]; ++m)
+				{
+					pData[(m_nImgHeight[i] - n - 1) * 3 * m_nImgWidth[i] + 3 * m + 0] = m_pTempImageData[i][n * 3 * m_nImgWidth[i] + 3 * m + 2];
+					pData[(m_nImgHeight[i] - n - 1) * 3 * m_nImgWidth[i] + 3 * m + 1] = m_pTempImageData[i][n * 3 * m_nImgWidth[i] + 3 * m + 1];
+					pData[(m_nImgHeight[i] - n - 1) * 3 * m_nImgWidth[i] + 3 * m + 2] = m_pTempImageData[i][n * 3 * m_nImgWidth[i] + 3 * m + 0];
+				}
+			}
+		}
+		else if (m_nImgBitCount[i] == 32)
+		{
+			if (m_pShowImage[i] != NULL && m_pShowImage[i]->format() != QImage::Format_RGBA8888)
+			{
+				delete m_pShowImage[i];
+				m_pShowImage[i] = NULL;
+			}
+
+			if (m_pShowImage[i] == NULL)
+			{
+				m_pShowImage[i] = new QImage(m_nImgWidth[i], m_nImgHeight[i], QImage::Format_RGBA8888);
+			}
+
+			unsigned char* pData = m_pShowImage[i]->bits();
+
+			memcpy(pData, m_pTempImageData, m_nImgWidth[i] * m_nImgHeight[i] * 4);
+		}
+
+		m_bHasNewData[i] = false;
+
+		m_pDataLocker[i]->unlock();
+		m_pImageLocker[i]->unlock();
+
+		if (m_pbSaveImage[i])
+		{
+			m_strImagePath = m_strImagePreFix + QString("CAM%1_%2.bmp").arg(i + 1, 3, 10, QChar('0')).arg(m_pnSnapCount[i], 3, 10, QChar('0'));
+
+			m_pnSnapCount[i] += 1;
+
+			if (m_pShowImage[i]->save(m_strImagePath))
+			{
+				if (m_fCaptureUseMS > 0.0f)
+				{
+					ui->SnapCountLabel->setText(QString("Snap finished, capture data use %1 MS").arg(QString::number(m_fCaptureUseMS, 'f', 2)));
+				}
+				else
+				{
+					ui->SnapCountLabel->setText("Snap count : " + QString::number(m_pnSnapCount[i]));
+				}
+
+				m_pbSaveImage[i] = false;
+			}
 		}
 	}
 }
@@ -1748,6 +1981,120 @@ void CKSJSCZDemoMainWindow::mousePressEvent(QMouseEvent * e)
 {
 	if (e->button() == Qt::LeftButton)
 	{
+		int ww = size().width() - 320;
+		int wh = size().height();
+
+		if (m_nCameraNumber <= 0)
+		{
+		}
+		else if (m_nCameraNumber == 1)
+		{
+			if (m_nCamareIndex == 0) return;
+
+			int x = 320;
+			int y = 0;
+			int w = ww;
+			int h = wh;
+
+			if (e->pos().x() > x && e->pos().x() < (x + w) && e->pos().y() > y && e->pos().y() < (y + h))
+			{
+				SelectDevice(0);
+			}
+		}
+		else if (m_nCameraNumber == 2)
+		{
+			int x = 320;
+			int y = 0;
+			int w = ww / 2;
+			int h = wh;
+
+			for (int i = 0; i < m_nCameraNumber; ++i)
+			{
+				x = 320 + i * ww / 2;
+
+				if (e->pos().x() > x && e->pos().x() < (x + w) && e->pos().y() > y && e->pos().y() < (y + h))
+				{
+					if (i != m_nCamareIndex) SelectDevice(i);
+					break;
+				}
+			}
+		}
+		else if (m_nCameraNumber <= 4)
+		{
+			int x = 320;
+			int y = 0;
+			int w = ww / 2;
+			int h = wh / 2;
+
+			for (int i = 0; i < m_nCameraNumber; ++i)
+			{
+				x = 320 + (i % 2) * ww / 2;
+				y = (i / 2) * wh / 2;
+
+				if (e->pos().x() > x && e->pos().x() < (x + w) && e->pos().y() > y && e->pos().y() < (y + h))
+				{
+					if (i != m_nCamareIndex) SelectDevice(i);
+					break;
+				}
+			}
+		}
+		else if (m_nCameraNumber <= 9)
+		{
+			int x = 320;
+			int y = 0;
+			int w = ww / 3;
+			int h = wh / 3;
+
+			for (int i = 0; i < m_nCameraNumber; ++i)
+			{
+				x = 320 + (i % 3) * ww / 3;
+				y = (i / 3) * wh / 3;
+
+				if (e->pos().x() > x && e->pos().x() < (x + w) && e->pos().y() > y && e->pos().y() < (y + h))
+				{
+					if (i != m_nCamareIndex) SelectDevice(i);
+					break;
+				}
+			}
+		}
+		else if (m_nCameraNumber <= 16)
+		{
+			int x = 320;
+			int y = 0;
+			int w = ww / 4;
+			int h = wh / 4;
+
+			for (int i = 0; i < m_nCameraNumber; ++i)
+			{
+				x = 320 + (i % 4) * ww / 4;
+				y = (i / 4) * wh / 4;
+
+				if (e->pos().x() > x && e->pos().x() < (x + w) && e->pos().y() > y && e->pos().y() < (y + h))
+				{
+					if (i != m_nCamareIndex) SelectDevice(i);
+					break;
+				}
+			}
+		}
+		else if (m_nCameraNumber <= 25)
+		{
+			int x = 320;
+			int y = 0;
+			int w = ww / 5;
+			int h = wh / 5;
+
+			for (int i = 0; i < m_nCameraNumber; ++i)
+			{
+				x = 320 + (i % 5) * ww / 5;
+				y = (i / 5) * wh / 5;
+
+				if (e->pos().x() > x && e->pos().x() < (x + w) && e->pos().y() > y && e->pos().y() < (y + h))
+				{
+					if (i != m_nCamareIndex) SelectDevice(i);
+					break;
+				}
+			}
+		}
 	}
 }
 
@@ -1808,7 +2155,7 @@ void CKSJSCZDemoMainWindow::on_CaptureRGBPushButton_clicked()
 		if (nRet == RET_SUCCESS)
 		{
 			// 采集图像以后，将内存数据转换成QImage数据,这样pImageData的数据就被转移到QImage里面，以后可以自己进行算法操作
-			TransferImageData(pImageBuffer, nWidth, nHeight, nBitCount, 200);
+			TransferImageData(m_nCamareIndex, pImageBuffer, nWidth, nHeight, nBitCount, 200);
 		}
 
 		delete[]pImageBuffer;
@@ -1841,7 +2188,7 @@ void CKSJSCZDemoMainWindow::on_CaptureRawPushButton_clicked()
 		if (nRet == RET_SUCCESS)
 		{
 			// 采集图像以后，将内存数据转换成QImage数据,这样pImageData的数据就被转移到QImage里面，以后可以自己进行算法操作
-			TransferImageData(pImageBuffer, nWidth, nHeight, 8, 200);
+			TransferImageData(m_nCamareIndex, pImageBuffer, nWidth, nHeight, 8, 200);
 		}
 
 		delete[]pImageBuffer;
