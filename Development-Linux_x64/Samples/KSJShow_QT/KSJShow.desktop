@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=KSJShow
+Comment=Catchbest Camera Show
+Exec=/home/firefly/KSJ/101/github.KSJApiNew/KSJDemoQT_QImage/KSJShow/KSJShow/run.sh
+Icon=/home/firefly/KSJ/101/github.KSJApiNew/KSJDemoQT_QImage/KSJShow/KSJ.png
+Terminal=true
+Type=Application
+Categories=Camera,Video;
+StartupNotify=true
+NoDisplay=false
